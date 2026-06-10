@@ -46,4 +46,14 @@ public class UsuarioService {
         return new CadastroUsuarioResponse(usuario);
 
     }
+
+    public CadastroUsuarioResponse buscaUsuarioLogado(String email) {
+        Usuario usuario = usuarioRepository.findByEmail(email)
+                .orElseThrow(() -> APIException.build(
+                        HttpStatus.NOT_FOUND,
+                        "Usuário não encontrado."
+                ));
+
+        return new CadastroUsuarioResponse(usuario);
+    }
 }
