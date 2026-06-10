@@ -1,10 +1,15 @@
 HELP.md
+
+### Maven ###
 target/
-.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
-mvnw
-mvnw.cmd
+
+### Maven Wrapper ###
+# NÃO IGNORAR:
+# mvnw
+# mvnw.cmd
+# .mvn/
 
 ### STS ###
 .apt_generated
@@ -16,10 +21,13 @@ mvnw.cmd
 .sts4-cache
 
 ### IntelliJ IDEA ###
-.idea
+.idea/
 *.iws
 *.iml
 *.ipr
+
+### VS Code ###
+.vscode/
 
 ### NetBeans ###
 /nbproject/private/
@@ -31,5 +39,9 @@ build/
 !**/src/main/**/build/
 !**/src/test/**/build/
 
-### VS Code ###
-.vscode/
+### Sistema Operacional ###
+.DS_Store
+Thumbs.db
+
+### Variáveis locais ###
+.env
