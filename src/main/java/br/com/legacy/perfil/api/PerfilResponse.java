@@ -20,7 +20,6 @@ public class PerfilResponse {
     LocalDateTime criadoEm;
     LocalDateTime atualizadoEm;
 
-
     public PerfilResponse(Perfil perfil) {
         this.idPerfil = perfil.getIdPerfil();
         this.idUsuario = perfil.getUsuario().getIdUsuario();

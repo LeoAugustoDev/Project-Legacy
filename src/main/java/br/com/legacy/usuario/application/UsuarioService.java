@@ -22,7 +22,6 @@ public class UsuarioService {
     private final UsuarioRepository usuarioRepository;
 
     public CadastroUsuarioResponse cadastroUsuario(CadastroUsuarioRequest request) {
-
         usuarioRepository.findByEmail(request.getEmail())
                 .ifPresent(usuario -> {
                     log.warn("Tentativa de cadastro com e-mail ja existente");
@@ -44,7 +43,6 @@ public class UsuarioService {
         log.info("Usuario cadastrado com sucesso. usuarioId={}", usuario.getIdUsuario());
 
         return new CadastroUsuarioResponse(usuario);
-
     }
 
     public CadastroUsuarioResponse buscaUsuarioLogado(String email) {
