@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/legacy
-    username: postgres
-    password: postgres
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/legacy}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
 
   jpa:
     hibernate:
@@ -16,3 +16,8 @@ spring:
 
 server:
   port: 8080
+
+legacy:
+  jwt:
+    secret: ${JWT_SECRET:legacy-dev-secret-key-change-this-value-123456}
+    expiration-ms: ${JWT_EXPIRATION_MS:86400000}
