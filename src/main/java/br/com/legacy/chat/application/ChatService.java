@@ -2,7 +2,17 @@ package br.com.legacy.chat.application;
 
 import br.com.legacy.chat.api.ChatRequest;
 import br.com.legacy.chat.api.ChatResponse;
+import br.com.legacy.chat.api.ConversaRequest;
+import br.com.legacy.chat.api.ConversaResponse;
+import br.com.legacy.chat.api.ConversaResumoResponse;
+import br.com.legacy.chat.domain.AutorMensagem;
+import br.com.legacy.chat.domain.Conversa;
+import br.com.legacy.chat.domain.Mensagem;
+import br.com.legacy.chat.infra.ConversaRepository;
+import br.com.legacy.chat.infra.MensagemRepository;
 import br.com.legacy.handler.APIException;
+import br.com.legacy.memoria.domain.MemoriaContexto;
+import br.com.legacy.memoria.infra.MemoriaContextoRepository;
 import br.com.legacy.perfil.domain.Perfil;
 import br.com.legacy.perfil.infra.PerfilRepository;
 import br.com.legacy.usuario.domain.Usuario;
@@ -22,10 +32,12 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
@@ -34,9 +46,14 @@ public class ChatService {
     private static final String DEFAULT_GROQ_BASE_URL = "https://api.groq.com/openai/v1";
     private static final String DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b";
     private static final String CHAT_COMPLETIONS_PATH = "/chat/completions";
+    private static final String TITULO_PADRAO = "Nova conversa";
+    private static final int LIMITE_MEMORIA = 2000;
 
     private final UsuarioRepository usuarioRepository;
     private final PerfilRepository perfilRepository;
+    private final ConversaRepository conversaRepository;
+    private final MensagemRepository mensagemRepository;
+    private final MemoriaContextoRepository memoriaContextoRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${spring.ai.openai.api-key}")
@@ -54,14 +71,88 @@ public class ChatService {
     @Value("${spring.ai.openai.chat.max-tokens:500}")
     private Integer maxTokens;
 
-    @Transactional(readOnly = true)
+    @Transactional
     public ChatResponse enviaMensagem(String email, ChatRequest request) {
         Usuario usuario = buscaUsuarioPorEmail(email);
-        Optional<Perfil> perfil = perfilRepository.findByUsuario(usuario);
+        Conversa conversa = novaConversa(usuario, tituloDaMensagem(request.getMensagem()));
 
-        String resposta = chamaGroq(promptSistema(), promptUsuario(usuario, perfil, request.getMensagem()));
+        return enviaMensagem(conversa, usuario, request.getMensagem());
+    }
+
+    @Transactional(readOnly = true)
+    public List<ConversaResumoResponse> listaConversas(String email) {
+        Usuario usuario = buscaUsuarioPorEmail(email);
+
+        return conversaRepository.findByUsuarioOrderByAtualizadoEmDesc(usuario).stream()
+                .map(ConversaResumoResponse::new)
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public ConversaResponse buscaConversa(String email, UUID idConversa) {
+        Usuario usuario = buscaUsuarioPorEmail(email);
+        Conversa conversa = buscaConversaDoUsuario(idConversa, usuario);
+
+        return montaConversaResponse(conversa);
+    }
+
+    @Transactional
+    public ConversaResponse criaConversa(String email, ConversaRequest request) {
+        Usuario usuario = buscaUsuarioPorEmail(email);
+        Conversa conversa = novaConversa(usuario, tituloDaRequest(request));
+
+        return montaConversaResponse(conversa);
+    }
+
+    @Transactional
+    public ChatResponse enviaMensagemNaConversa(String email, UUID idConversa, ChatRequest request) {
+        Usuario usuario = buscaUsuarioPorEmail(email);
+        Conversa conversa = buscaConversaDoUsuario(idConversa, usuario);
+
+        return enviaMensagem(conversa, usuario, request.getMensagem());
+    }
+
+    private ChatResponse enviaMensagem(Conversa conversa, Usuario usuario, String mensagem) {
+        Optional<Perfil> perfil = perfilRepository.findByUsuario(usuario);
+        Optional<MemoriaContexto> memoria = memoriaContextoRepository.findByUsuario(usuario);
+        List<Mensagem> ultimasMensagens = buscaUltimasMensagens(conversa);
+
+        if (TITULO_PADRAO.equals(conversa.getTitulo())) {
+            conversa.atualizarTitulo(tituloDaMensagem(mensagem));
+        }
+
+        mensagemRepository.save(Mensagem.builder()
+                .conversa(conversa)
+                .autor(AutorMensagem.USUARIO)
+                .conteudo(mensagem)
+                .build());
+
+        String resposta = chamaGroq(promptSistema(), promptUsuario(usuario, perfil, memoria, ultimasMensagens, mensagem));
+
+        mensagemRepository.save(Mensagem.builder()
+                .conversa(conversa)
+                .autor(AutorMensagem.IA)
+                .conteudo(resposta)
+                .build());
+
+        conversa.marcarAtualizada();
+        conversaRepository.save(conversa);
+        atualizaMemoria(usuario, mensagem, resposta);
 
         return new ChatResponse(resposta);
+    }
+
+    private Conversa novaConversa(Usuario usuario, String titulo) {
+        return conversaRepository.save(Conversa.builder()
+                .usuario(usuario)
+                .titulo(titulo)
+                .build());
+    }
+
+    private ConversaResponse montaConversaResponse(Conversa conversa) {
+        List<Mensagem> mensagens = mensagemRepository.findByConversaOrderByCriadoEmAsc(conversa);
+
+        return new ConversaResponse(conversa, mensagens);
     }
 
     private String chamaGroq(String promptSistema, String promptUsuario) {
@@ -118,13 +209,25 @@ public class ChatService {
                 """;
     }
 
-    private String promptUsuario(Usuario usuario, Optional<Perfil> perfil, String mensagem) {
+    private String promptUsuario(
+            Usuario usuario,
+            Optional<Perfil> perfil,
+            Optional<MemoriaContexto> memoria,
+            List<Mensagem> ultimasMensagens,
+            String mensagem
+    ) {
         return perfil
-                .map(perfilEncontrado -> promptComPerfil(usuario, perfilEncontrado, mensagem))
-                .orElseGet(() -> promptSemPerfil(usuario, mensagem));
+                .map(perfilEncontrado -> promptComPerfil(usuario, perfilEncontrado, memoria, ultimasMensagens, mensagem))
+                .orElseGet(() -> promptSemPerfil(usuario, memoria, ultimasMensagens, mensagem));
     }
 
-    private String promptComPerfil(Usuario usuario, Perfil perfil, String mensagem) {
+    private String promptComPerfil(
+            Usuario usuario,
+            Perfil perfil,
+            Optional<MemoriaContexto> memoria,
+            List<Mensagem> ultimasMensagens,
+            String mensagem
+    ) {
         return """
                 Usuário: %s
 
@@ -136,6 +239,12 @@ public class ChatService {
                 Cores preferidas: %s
                 Restrições: %s
 
+                Memória conhecida:
+                %s
+
+                Últimas mensagens relevantes:
+                %s
+
                 Mensagem do usuário:
                 %s
                 """.formatted(
@@ -146,20 +255,127 @@ public class ChatService {
                 perfil.getContextoUso(),
                 valorOuNaoInformado(perfil.getCoresPreferidas()),
                 valorOuNaoInformado(perfil.getRestricoes()),
+                memoriaResumida(memoria),
+                historicoCurto(ultimasMensagens),
                 mensagem
         );
     }
 
-    private String promptSemPerfil(Usuario usuario, String mensagem) {
+    private String promptSemPerfil(
+            Usuario usuario,
+            Optional<MemoriaContexto> memoria,
+            List<Mensagem> ultimasMensagens,
+            String mensagem
+    ) {
         return """
                 Usuário: %s
 
                 O usuário ainda não preencheu o perfil de imagem.
                 Responda com orientação geral e, se útil, sugira preencher o perfil para recomendações mais precisas.
 
+                Memória conhecida:
+                %s
+
+                Últimas mensagens relevantes:
+                %s
+
                 Mensagem do usuário:
                 %s
-                """.formatted(usuario.getNome(), mensagem);
+                """.formatted(
+                usuario.getNome(),
+                memoriaResumida(memoria),
+                historicoCurto(ultimasMensagens),
+                mensagem
+        );
+    }
+
+    private List<Mensagem> buscaUltimasMensagens(Conversa conversa) {
+        return mensagemRepository.findTop5ByConversaOrderByCriadoEmDesc(conversa).stream()
+                .sorted(Comparator.comparing(Mensagem::getCriadoEm))
+                .toList();
+    }
+
+    private String memoriaResumida(Optional<MemoriaContexto> memoria) {
+        return memoria
+                .map(MemoriaContexto::getResumo)
+                .filter(StringUtils::hasText)
+                .orElse("Nenhuma memória persistida ainda.");
+    }
+
+    private String historicoCurto(List<Mensagem> mensagens) {
+        if (mensagens.isEmpty()) {
+            return "Nenhuma mensagem anterior nesta conversa.";
+        }
+
+        return mensagens.stream()
+                .map(mensagem -> mensagem.getAutor() + ": " + limitaTexto(mensagem.getConteudo(), 300))
+                .toList()
+                .toString();
+    }
+
+    private void atualizaMemoria(Usuario usuario, String mensagemUsuario, String respostaIa) {
+        Optional<MemoriaContexto> memoriaExistente = memoriaContextoRepository.findByUsuario(usuario);
+        String novaEntrada = "Interação recente: usuário perguntou \"%s\". Orientação dada: \"%s\"."
+                .formatted(
+                        limitaTexto(mensagemUsuario, 220),
+                        limitaTexto(respostaIa, 360)
+                );
+
+        String resumoAtual = memoriaExistente
+                .map(MemoriaContexto::getResumo)
+                .orElse("");
+
+        String resumoAtualizado = limitaMemoria(
+                StringUtils.hasText(resumoAtual) ? resumoAtual + "\n" + novaEntrada : novaEntrada
+        );
+
+        memoriaExistente.ifPresentOrElse(
+                memoria -> memoria.atualizarResumo(resumoAtualizado),
+                () -> memoriaContextoRepository.save(MemoriaContexto.builder()
+                        .usuario(usuario)
+                        .resumo(resumoAtualizado)
+                        .build())
+        );
+    }
+
+    private String limitaMemoria(String valor) {
+        if (valor.length() <= LIMITE_MEMORIA) {
+            return valor;
+        }
+
+        return valor.substring(valor.length() - LIMITE_MEMORIA).trim();
+    }
+
+    private String limitaTexto(String valor, int limite) {
+        String texto = valor.trim().replaceAll("\\s+", " ");
+
+        if (texto.length() <= limite) {
+            return texto;
+        }
+
+        return texto.substring(0, limite - 3) + "...";
+    }
+
+    private String tituloDaRequest(ConversaRequest request) {
+        if (request != null && StringUtils.hasText(request.getTitulo())) {
+            return limitaTitulo(request.getTitulo().trim());
+        }
+
+        return TITULO_PADRAO;
+    }
+
+    private String tituloDaMensagem(String mensagem) {
+        String titulo = mensagem.trim().replaceAll("\\s+", " ");
+
+        return limitaTitulo(titulo);
+    }
+
+    private String limitaTitulo(String titulo) {
+        if (titulo.length() <= 100) {
+            return titulo;
+        }
+
+        return titulo.substring(0, 97) + "...";
     }
 
     private String valorOuNaoInformado(String valor) {
@@ -272,6 +488,14 @@ public class ChatService {
         }
 
         return valorLimpo;
+    }
+
+    private Conversa buscaConversaDoUsuario(UUID idConversa, Usuario usuario) {
+        return conversaRepository.findByIdConversaAndUsuario(idConversa, usuario)
+                .orElseThrow(() -> APIException.build(
+                        HttpStatus.NOT_FOUND,
+                        "Conversa não encontrada."
+                ));
     }
 
     private Usuario buscaUsuarioPorEmail(String email) {
