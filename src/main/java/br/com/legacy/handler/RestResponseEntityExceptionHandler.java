@@ -16,38 +16,43 @@ import java.util.Map;
 @RestControllerAdvice
 @Log4j2
 public class RestResponseEntityExceptionHandler {
-	@ExceptionHandler(APIException.class)
-	public ResponseEntity<ErrorApiResponse> handlerGenericException(APIException ex) {
-		log.info( ex.getStatusException() + " - Exception message: " + ex.getMessage());
-		return ex.buildErrorResponseEntity();
-	}
+    @ExceptionHandler(APIException.class)
+    public ResponseEntity<ErrorApiResponse> handlerGenericException(APIException ex) {
+        log.info("APIException capturada. status={}, message={}", ex.getStatusException(), ex.getMessage());
+        return ex.buildErrorResponseEntity();
+    }
 
-	@ExceptionHandler(Exception.class)
-	public ResponseEntity<ErrorApiResponse> handlerGenericException(Exception ex) {
-		log.error("Exception: ", ex);
-		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-				.body(ErrorApiResponse.builder().description("INTERNAL SERVER ERROR!")
-						.message("POR FAVOR INFORME AO ADMINISTRADOR DO SISTEMA!").build());
-	}
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ErrorApiResponse> handlerGenericException(Exception ex) {
+        log.error("Exception: ", ex);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ErrorApiResponse.builder()
+                        .description("INTERNAL SERVER ERROR!")
+                        .message("POR FAVOR INFORME AO ADMINISTRADOR DO SISTEMA!")
+                        .build());
+    }
 
-	@ResponseStatus(HttpStatus.BAD_REQUEST)
-	@ExceptionHandler(MethodArgumentNotValidException.class)
-	public Map<String, String> handleValidationExceptions(MethodArgumentNotValidException ex) {
-		Map<String, String> errors = new HashMap<>();
-		ex.getBindingResult().getAllErrors().forEach((error) -> {
-			String fieldName = ((FieldError) error).getField();
-			String errorMessage = error.getDefaultMessage();
-			errors.put(fieldName, errorMessage);
-		});
-		return errors;
-	}
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public Map<String, String> handleValidationExceptions(MethodArgumentNotValidException ex) {
+        Map<String, String> errors = new HashMap<>();
+        ex.getBindingResult().getAllErrors().forEach(error -> {
+            String fieldName = ((FieldError) error).getField();
+            String errorMessage = error.getDefaultMessage();
+            errors.put(fieldName, errorMessage);
+        });
+        return errors;
+    }
 
-	@ResponseStatus(HttpStatus.BAD_REQUEST)
-	@ExceptionHandler(MethodArgumentTypeMismatchException.class)
-	public ResponseEntity<ErrorApiResponse> handleMethodArgumentTypeMismatchException(MethodArgumentTypeMismatchException ex) {
-		log.error("Exception: " + ex.getMessage());
-		return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(ErrorApiResponse.builder().description("BAD REQUEST!")
-						.message("REVISE OS DADOS OU INFORME O ADMINISTRADOR!").build());
-	}
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorApiResponse> handleMethodArgumentTypeMismatchException(MethodArgumentTypeMismatchException ex) {
+        log.error("Exception: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ErrorApiResponse.builder()
+                        .description("BAD REQUEST!")
+                        .message("REVISE OS DADOS OU INFORME O ADMINISTRADOR!")
+                        .build());
+    }
 
 }
