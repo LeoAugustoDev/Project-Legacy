@@ -46,5 +46,8 @@ Thumbs.db
 ### Variáveis locais ###
 .env
 
+### Uploads locais ###
+uploads/
+
 LEGACY_SDD_CONTEXT.md
 PLANO_IMPLEMENTACAO_MVP_LEGACY.md
