@@ -1,4 +1,9 @@
 spring:
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 5MB
+
   ai:
     openai:
       api-key: ${GROQ_API_KEY:}
@@ -29,3 +34,14 @@ legacy:
   jwt:
     secret: ${JWT_SECRET:legacy-dev-secret-key-change-this-value-123456}
     expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+  upload:
+    imagens:
+      dir: ${LEGACY_UPLOAD_IMAGENS_DIR:uploads/imagens}
+      max-size-bytes: ${LEGACY_UPLOAD_IMAGENS_MAX_SIZE_BYTES:5242880}
+  analise-visual:
+    max-image-size-bytes: ${LEGACY_ANALISE_VISUAL_MAX_IMAGE_SIZE_BYTES:3145728}
+  ia:
+    groq:
+      vision-model: ${GROQ_VISION_MODEL:meta-llama/llama-4-scout-17b-16e-instruct}
+      vision-temperature: ${GROQ_VISION_TEMPERATURE:0.4}
+      vision-max-tokens: ${GROQ_VISION_MAX_TOKENS:700}
